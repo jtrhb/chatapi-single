@@ -1,7 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 // @ts-ignore
-import { ChatGPTAPIBrowser, SendMessageOptions } from "chatgpt";
-import { loadConfig } from "./lib";
+import { SendMessageOptions, ChatGPTAPI } from "chatgpt";
+import { loadConfig, sendText } from "./lib";
 import express from "express";
 import AsyncRetry from "async-retry";
 import { Queue } from "async-await-queue";
@@ -12,7 +12,7 @@ const prisma = new PrismaClient();
 const mesasgeQueue = new Queue(1, 100);
 const config = loadConfig();
 const app = express();
-let chatGPTAPIBrowser: ChatGPTAPIBrowser;
+let chatGPTAPI: ChatGPTAPI;
 app.use(express.json());
 app.get(`/`, async (req, res) => {
   return res.json({
@@ -21,13 +21,32 @@ app.get(`/`, async (req, res) => {
   });
 });
 
+// app.post(`/message`, async (req, res) => {
+//   try {
+//     const { message } = req.body;
+//     console.log(`Received message: ${message}`);
+//     const reply = await sendMesasge(message);
+//     return res.json({
+//       response: reply.text,
+//     });
+//   } catch (e) {
+//     console.error(e);
+//     return res.status(500).json({
+//       message: "Something went wrong",
+//       error: `${e}`,
+//     });
+//   }
+// });
+
 app.post(`/message`, async (req, res) => {
   try {
-    const { message } = req.body;
-    console.log(`Received message: ${message}`);
-    const reply = await sendMesasge(message);
+    const message = req.body.data;
+    if (!message.payload?.text) return
+    console.log(`Received message: ${message.payload.text}`);
+    const reply = await sendMesasge(message.payload.text, message.chatId);
+    await sendText(message.chatId, reply.text)
     return res.json({
-      response: reply.response,
+      response: reply.text,
     });
   } catch (e) {
     console.error(e);
@@ -48,7 +67,7 @@ const getOrCreateConversationInfo = async (
   });
   if (conversationInfo) {
     return {
-      conversationId: conversationInfo.conversationId,
+      conversationId: conversationInfo.conversationId as string,
       parentMessageId: conversationInfo.messageId,
     };
   } else {
@@ -65,7 +84,11 @@ const sendMesasge = async (message: string, sessionId?: string) => {
   const startTime = new Date().getTime();
   let response;
   try {
-    response = await chatGPTAPIBrowser.sendMessage(message, conversationInfo);
+    response = await chatGPTAPI.sendMessage(message, {
+      ...conversationInfo,
+      timeoutMs: 5 * 60 * 1000,
+      onProgress: (partialResponse) => console.log(partialResponse.text)
+    });
   } catch (e) {
     console.error(e);
     throw e;
@@ -78,13 +101,13 @@ const sendMesasge = async (message: string, sessionId?: string) => {
       where: {
         sessionId_conversationId: {
           sessionId,
-          conversationId: response.conversationId,
+          conversationId: response.conversationId as string,
         },
       },
       create: {
         sessionId,
         conversationId: response.conversationId,
-        messageId: response.messageId,
+        messageId: response.id,
       },
       update: {},
     });
@@ -92,9 +115,9 @@ const sendMesasge = async (message: string, sessionId?: string) => {
   await prisma.result.create({
     data: {
       request: message,
-      response: response.response,
+      response: response.text,
       conversationsId: response.conversationId,
-      messageId: response.messageId,
+      messageId: response.id,
       responseTime: endTime - startTime,
     },
   });
@@ -107,7 +130,7 @@ app.post(`/message/:sessionId`, async (req, res) => {
     console.log(`Received message: ${message} for session: ${sessionId}`);
     const response = await sendMesasge(message, sessionId);
     return res.json({
-      response: response.response,
+      response: response.text,
     });
   } catch (e) {
     console.error(e);
@@ -138,25 +161,14 @@ app.delete(`/message/:sessionId`, async (req, res) => {
 });
 async function main() {
   // @ts-ignore
-  const { ChatGPTAPIBrowser } = await import("chatgpt");
+  const { ChatGPTAPI } = await import("chatgpt");
   console.log(
     `Starting chatgpt with config: ${JSON.stringify(config, null, 2)}`
   );
   const PORT = process.env.PORT || 4000;
-  chatGPTAPIBrowser = new ChatGPTAPIBrowser(config);
-  await AsyncRetry(
-    async () => {
-      await chatGPTAPIBrowser.initSession();
-    },
-    {
-      retries: 5,
-      onRetry: (error) => {
-        console.error(`Starting chatgpt failed, retrying...`);
-        console.error(error);
-      },
-    }
-  );
+  chatGPTAPI = new ChatGPTAPI(config);
   console.log(`🎉 Started chatgpt success!`);
+
   app.listen(PORT, () => {
     console.log(`🚀 Server ready at: http://localhost:${PORT}`);
   });

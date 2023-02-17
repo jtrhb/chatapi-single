@@ -12,7 +12,7 @@ model Conversations {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   sessionId      String
-  conversationId String
+  conversationId String?
   messageId      String
 
   @@unique([sessionId, conversationId])
@@ -24,7 +24,7 @@ model Result {
   updatedAt       DateTime @updatedAt
   request         String
   response        String
-  conversationsId String
+  conversationsId String?
   messageId       String
   responseTime    Int      @default(0)
 }

@@ -1,7 +1,12 @@
 import "dotenv/config";
+import axios from 'axios'
+
+const JUZI_SEND_URL: string = process.env.JUZI_SEND_URL as string
+const JUZI_TOKEN: string = process.env.JUZI_TOKEN as string
 export interface ChatGPTAPIBrowserConfig {
-  email: string;
-  password: string;
+  apiKey: string;
+  email?: string;
+  password?: string;
   isProAccount?: boolean;
   markdown?: boolean;
   debug?: boolean;
@@ -15,19 +20,16 @@ export interface ChatGPTAPIBrowserConfig {
   userDataDir?: string;
 }
 export const loadConfig = (): ChatGPTAPIBrowserConfig => {
-  const email = process.env.EMAIL;
-  if (!email) {
+  const apiKey = process.env.APIKEY;
+  if (!apiKey) {
     throw new Error(
       "Please provide email in .env file or environment variable"
     );
   }
+  const email = process.env.EMAIL;
   const password = process.env.PASSWORD;
-  if (!password) {
-    throw new Error(
-      "Please provide password in .env file or environment variable"
-    );
-  }
   return {
+    apiKey,
     email,
     password,
     isProAccount: process.env.IS_PRO_ACCOUNT === "true",
@@ -52,3 +54,15 @@ export const loadConfig = (): ChatGPTAPIBrowserConfig => {
       : undefined,
   };
 };
+
+export async function sendText(chatId: string, text: string, mention: any[] = []) {
+  await axios.post(JUZI_SEND_URL, {
+    "chatId": chatId,
+    "token": JUZI_TOKEN,
+    "messageType": 0,
+    "payload": {
+      "text": text,
+      "mention": mention
+    }
+  })
+}
