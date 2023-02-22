@@ -21,28 +21,30 @@ app.get(`/`, async (req, res) => {
   });
 });
 
-// app.post(`/message`, async (req, res) => {
-//   try {
-//     const { message } = req.body;
-//     console.log(`Received message: ${message}`);
-//     const reply = await sendMesasge(message);
-//     return res.json({
-//       response: reply.text,
-//     });
-//   } catch (e) {
-//     console.error(e);
-//     return res.status(500).json({
-//       message: "Something went wrong",
-//       error: `${e}`,
-//     });
-//   }
-// });
+app.post(`/api/message`, async (req, res) => {
+  try {
+    const { message, prompt } = req.body;
+    console.log(`Received message: ${message}`);
+    const reply = await sendMesasge(message, undefined, prompt);
+    return res.json({
+      response: reply.text,
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({
+      message: "Something went wrong",
+      error: `${e}`,
+    });
+  }
+});
 
 app.post(`/message`, async (req, res) => {
   try {
     const message = req.body.data;
     if (!message.payload?.text) return
     console.log(`Received message: ${message.payload.text}`);
+
+    
     const reply = await sendMesasge(message.payload.text, message.chatId);
     await sendText(message.chatId, reply.text)
     return res.json({
@@ -74,7 +76,7 @@ const getOrCreateConversationInfo = async (
     return {};
   }
 };
-const sendMesasge = async (message: string, sessionId?: string) => {
+const sendMesasge = async (message: string, sessionId?: string, prompt?: string) => {
   let conversationInfo;
   if (sessionId) {
     conversationInfo = await getOrCreateConversationInfo(sessionId);
@@ -85,6 +87,7 @@ const sendMesasge = async (message: string, sessionId?: string) => {
   let response;
   try {
     response = await chatGPTAPI.sendMessage(message, {
+      promptPrefix: prompt,
       ...conversationInfo,
       timeoutMs: 5 * 60 * 1000,
       onProgress: (partialResponse) => console.log(partialResponse.text)
