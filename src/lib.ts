@@ -21,6 +21,7 @@ export interface ChatGPTAPIBrowserConfig {
 }
 export const loadConfig = (): ChatGPTAPIBrowserConfig => {
   const apiKey = process.env.APIKEY;
+  console.log(`apiKey: ${apiKey}`)
   if (!apiKey) {
     throw new Error(
       "Please provide email in .env file or environment variable"

@@ -3,11 +3,11 @@ import { PrismaClient } from "@prisma/client";
 import { SendMessageOptions, ChatGPTAPI } from "chatgpt";
 import { loadConfig, sendText } from "./lib";
 import express from "express";
-import AsyncRetry from "async-retry";
 import { Queue } from "async-await-queue";
 import { randomUUID } from "crypto";
 
 const prisma = new PrismaClient();
+let systemMessages: any = {}
 // ChatGPT (not plus) is limited to 1 request one time.
 const mesasgeQueue = new Queue(1, 100);
 const config = loadConfig();
@@ -44,8 +44,18 @@ app.post(`/message`, async (req, res) => {
     if (!message.payload?.text) return
     console.log(`Received message: ${message.payload.text}`);
 
-    
-    const reply = await sendMesasge(message.payload.text, message.chatId);
+    if (message.payload.text.startsWith('提示@')) {
+      const systemMessage: string = message.payload.text.split('@')[1]
+      systemMessages[message.chatId] ? systemMessages[message.chatId].push(systemMessage) : systemMessages = {...systemMessages, [message.chatId]: [systemMessage]}
+      await sendText(message.chatId, '提示已设置，后续对话将以此提示为背景【本条消息由系统发送】')
+      return
+    }
+
+    let prompt
+    if (systemMessages[message.chatId]) {
+      prompt = systemMessages[message.chatId].join(`\n`)
+    }
+    const reply = await sendMesasge(message.payload.text, message.chatId, prompt);
     await sendText(message.chatId, reply.text)
     return res.json({
       response: reply.text,
@@ -62,14 +72,18 @@ app.post(`/message`, async (req, res) => {
 const getOrCreateConversationInfo = async (
   sessionId: string
 ): Promise<SendMessageOptions> => {
-  const conversationInfo = await prisma.conversations.findFirst({
+  const [conversationInfo] = await prisma.conversations.findMany({
     where: {
       sessionId,
     },
+    orderBy: {
+      id: 'desc'
+    },
+    take: 1
   });
   if (conversationInfo) {
+    console.log(`parentMessageId: ${conversationInfo.messageId}`)
     return {
-      conversationId: conversationInfo.conversationId as string,
       parentMessageId: conversationInfo.messageId,
     };
   } else {
@@ -87,8 +101,8 @@ const sendMesasge = async (message: string, sessionId?: string, prompt?: string)
   let response;
   try {
     response = await chatGPTAPI.sendMessage(message, {
-      promptPrefix: prompt,
       ...conversationInfo,
+      systemMessage: prompt,
       timeoutMs: 5 * 60 * 1000,
       onProgress: (partialResponse) => console.log(partialResponse.text)
     });
@@ -102,14 +116,13 @@ const sendMesasge = async (message: string, sessionId?: string, prompt?: string)
   if (sessionId) {
     await prisma.conversations.upsert({
       where: {
-        sessionId_conversationId: {
+        sessionId_messageId: {
           sessionId,
-          conversationId: response.conversationId as string,
+          messageId: response.id as string,
         },
       },
       create: {
         sessionId,
-        conversationId: response.conversationId,
         messageId: response.id,
       },
       update: {},
@@ -119,7 +132,6 @@ const sendMesasge = async (message: string, sessionId?: string, prompt?: string)
     data: {
       request: message,
       response: response.text,
-      conversationsId: response.conversationId,
       messageId: response.id,
       responseTime: endTime - startTime,
     },

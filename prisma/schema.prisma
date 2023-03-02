@@ -15,7 +15,7 @@ model Conversations {
   conversationId String?
   messageId      String
 
-  @@unique([sessionId, conversationId])
+  @@unique([sessionId, messageId])
 }
 
 model Result {
